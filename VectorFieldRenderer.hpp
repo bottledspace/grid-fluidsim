@@ -59,7 +59,7 @@ void main() {
     float xi = float(gl_InstanceID % width);
     float yi = float(gl_InstanceID / width);
     vec2 uv = vec2(xi,yi)/width;
-    vec2 dir = 2.0*texture(grid, uv).xy/width;
+    vec2 dir = 20.0*texture(grid, uv).xy/width;
     vec2 pos = 2.0*uv-1.0;
 	gl_Position = vec4(pos + gl_VertexID*dir,0.0,1.0);
 }
@@ -67,6 +67,6 @@ void main() {
 const char* VectorFieldRenderer::fragSrc = R"(#version 330
 out vec3 color;
 void main() {
-    color = vec3(0.0,0.0,0.0);
+    color = vec3(0.0,1.0,0.0);
 }
 )";

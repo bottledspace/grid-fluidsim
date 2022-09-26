@@ -3,6 +3,7 @@
 #include "Grid.hpp"
 #include "GridRenderer.hpp"
 #include "VectorFieldRenderer.hpp"
+#include "SignedDistanceFieldRenderer.hpp"
 #include <iostream>
 #include <string>
 #include <functional>
@@ -76,13 +77,15 @@ void bounds(Grid<float>& out) {
 }
 
 template <typename T>
-auto diffuse(Grid<T>& grid, float dt, float kappa) {
+auto diffuse(Grid<T>& grid, Grid<float>& sdf, float dt, float kappa) {
     const float a = dt*kappa*N*N;
     
     Grid<T> res(N,N);
     for (int k = 0; k < 20; k++) {
         for (int y = 1; y <= N; y++)
         for (int x = 1; x <= N; x++) {
+            if (sdf(x,y) > 0)
+                continue;
             res(x,y) = (grid(x,y) +
                 a*(res(x-1,y) + res(x+1,y)
                  + res(x,y-1) + res(x,y+1)))/(1+4*a);
@@ -106,7 +109,26 @@ auto advect(Grid<T>& grid, Grid<glm::vec2>& vel, float dt) {
     return res;
 }
 
-auto project(Grid<glm::vec2>& grid, float h) {    
+// This version of advect restricts to the inner surface of a given sdf.
+template <typename T>
+auto advect(Grid<T>& grid, Grid<glm::vec2>& vel, Grid<float>& sdf, float dt) {
+    Grid<T> res(N,N);
+    for (int y = 1; y <= N; y++)
+    for (int x = 1; x <= N; x++) {
+        if (sdf(x,y) > 0) {
+            grid(x,y) = T(0.0);  // Only advect within the fluid.
+            continue;
+        }
+        auto p = glm::vec2(x,y) - dt*N*vel(x,y);
+        p.x = std::max(0.5f, std::min(N+0.5f, p.x));
+        p.y = std::max(0.5f, std::min(N+0.5f, p.y));
+        res(x,y) = grid(p);
+    }
+    bounds(res);
+    return res;
+}
+
+auto project(Grid<glm::vec2>& grid, Grid<float>& sdf, float h) {    
     Grid<float> phi(grid.width(), grid.height());
     Grid<float> div(grid.width(), grid.height());
     Grid<glm::vec2> res(grid);
@@ -136,16 +158,48 @@ auto project(Grid<glm::vec2>& grid, float h) {
     return res;
 }
 
+template <typename T>
+auto extrapolate(Grid<T>& grid, Grid<float>& sdf) {
+    Grid<int> valid0(N,N);
+    Grid<int> valid1(N,N,-1);
+    Grid<T> res = grid;
+    for (int y = 0; y <= N+1; y++)
+    for (int x = 0; x <= N+1; x++)
+        valid0(x,y) = sdf(x,y) > 0;
+
+    for (int k = 0; k < 20; k++) {
+        for (int y = 1; y <= N; y++)
+        for (int x = 1; x <= N; x++) {
+            if (valid0(x,y)) {
+                valid1(x,y) = 1;
+                continue;
+            }
+            T sum = T(0.0);
+            float count = 0;
+            if (valid0(x+1,y)) sum += res(x+1,y), ++count;
+            if (valid0(x-1,y)) sum += res(x-1,y), ++count;
+            if (valid0(x,y+1)) sum += res(x,y+1), ++count;
+            if (valid0(x,y-1)) sum += res(x,y-1), ++count;
+            if (count != 0) {
+                res(x,y) = sum/count;
+                valid1(x,y) = 1;
+            }
+        }
+        swap(valid1, valid0);
+    }
+    return res;
+}
+
 auto adjustsdf(Grid<float>& sdf) {
-    constexpr float T = 0.25*h;
+    constexpr float T = 0.01*h;
     Grid<float> res = sdf;
     Grid<float> temp(sdf.width(), sdf.height());
 
     auto sq = [](float x) { return x*x; };
     
-    for (int k = 0; k < 20; k++) {
-        for (int x = 1; x <= N; x++)
-        for (int y = 1; y <= N; y++) {
+    for (int k = 0; k < 100; k++) {
+        for (int y = 1; y <= N; y++)
+        for (int x = 1; x <= N; x++) {
             float phi = res(x,y);
             float dx1 = (phi - res(x-1,y))/h;
             float dx2 = (res(x+1,y) - phi)/h;
@@ -172,13 +226,22 @@ void simulate(Grid<glm::vec2>& velocity, Grid<float>& density, Grid<float>& sdf,
     // du/dt     = -(u.∇)u    + nu(∇^2u)  + g
     // variation = convection + diffusion + sources
 
-    velocity = diffuse(velocity, dt, nu);
-    velocity = project(velocity, h);
-    velocity = advect(velocity, velocity, dt);
-    velocity = project(velocity, h);
+    //velocity = diffuse(velocity, sdf, dt, nu);
+    //velocity = project(velocity, sdf, h);
+    velocity = advect(velocity, velocity, sdf, dt);
+    velocity = extrapolate(velocity, sdf);
     
-    density = diffuse(density, dt, kappa);
-    density = advect(density, velocity, dt);
+    
+    // Add gravity
+    for (int y = 1; y <= N; y++)
+    for (int x = 1; x <= N; x++)
+        if (sdf(x,y) < 0)
+            velocity(x,y).y -= dt * 0.1;
+    bounds(velocity);
+    velocity = project(velocity, sdf, h);
+
+    //density = diffuse(density, dt, kappa);
+    //density = advect(density, velocity, dt);
 
     sdf = advect(sdf, velocity, dt);
     sdf = adjustsdf(sdf);
@@ -208,7 +271,8 @@ int main(int argc, char **argv)
 		return EXIT_FAILURE;
 	}
 
-    GridRenderer renderer;
+    GridRenderer densityRenderer;
+    SignedDistanceFieldRenderer sdfRenderer;
     VectorFieldRenderer velocityRenderer;
     
     std::vector<uint8_t> pixels(width*height*3);
@@ -216,10 +280,11 @@ int main(int argc, char **argv)
     if (argc == 2) {
         std::string command =
             "ffmpeg -y -f rawvideo -vcodec rawvideo -framerate 30"
-            " -pix_fmt rgb24 -s 1024x1024 -i - -vf vflip -c:v libx264"
+            " -pix_fmt rgb24 -s 512x512 -i - -vf vflip -c:v libx264"
             " -crf 30 -b:v 0 -r 30 ";
         command += argv[1];  // Unsafe, should be escaped first...
         pipeout = popen(command.c_str(), "w");
+        std::cout << width << "x" << height << std::endl;
     }
 
     // Setup the SDF.
@@ -257,16 +322,14 @@ int main(int argc, char **argv)
         simulate(velocity, density, sdf, dt, h);
         
 		glClear(GL_COLOR_BUFFER_BIT);
-        renderer.render(sdf);
-
-        // Read before we render the velocity field
+        //densityRenderer.render(density);
+        sdfRenderer.render(sdf);
+        velocityRenderer.render(velocity);
+		glfwSwapBuffers(window);
         if (pipeout) {
             glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
             fwrite(pixels.data(), 1, pixels.size(), pipeout);
         }
-        
-        velocityRenderer.render(velocity);
-		glfwSwapBuffers(window);
 		glfwPollEvents();
 	}
     if (pipeout) {

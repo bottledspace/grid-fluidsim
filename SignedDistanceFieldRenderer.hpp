@@ -1,9 +1,9 @@
 #pragma once
 #include "shader.hpp"
 
-class GridRenderer {
+class SignedDistanceFieldRenderer {
 public:
-    GridRenderer()
+    SignedDistanceFieldRenderer()
     : m_prog(createShaderProgram(vertSrc, fragSrc)) {
     	// Create a Vertex Array Object to hold our mesh data.
     	glGenVertexArrays(1, &m_vao);
@@ -52,7 +52,7 @@ private:
     static const char* fragSrc;
     static const glm::vec2 quadVerts[4];
 };
-const char* GridRenderer::vertSrc = R"(#version 330
+const char* SignedDistanceFieldRenderer::vertSrc = R"(#version 330
 in vec2 uv;
 out vec2 uvFrag;
 void main() {
@@ -60,16 +60,22 @@ void main() {
 	gl_Position = vec4(2.0*uv-1.0,0.0,1.0);
 }
 )";
-const char* GridRenderer::fragSrc = R"(#version 330
+const char* SignedDistanceFieldRenderer::fragSrc = R"(#version 330
 uniform sampler2D field;
 in vec2 uvFrag;
 out vec3 color;
 void main() {
-    float r = texture(field, uvFrag).r;
-	color = vec3(r,0.0,1.0-r);
+    //float left = textureOffset(field, uvFrag, ivec2(-1,0)).r;
+    //float right = textureOffset(field, uvFrag, ivec2(1,0)).r;
+    //float up = textureOffset(field, uvFrag, ivec2(0,1)).r;
+    //float down = textureOffset(field, uvFrag, ivec2(0,-1)).r;
+	float value = texture(field, uvFrag).r;
+    //if (left > 0 != right > 0 || up > 0 != down > 0)
+    //   value += 0.5;
+    color = (value > 0) ? 2.0*vec3(value, 0.0, 0.0) : 2.0*vec3(0.0, 0.0, -value);
 }
 )";
-const glm::vec2 GridRenderer::quadVerts[4] = {
+const glm::vec2 SignedDistanceFieldRenderer::quadVerts[4] = {
     {0.0f, 0.0f},
     {1.0f, 0.0f},
     {0.0f, 1.0f},

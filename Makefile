@@ -4,5 +4,5 @@ LDFLAGS = -Wl,-allow-multiple-definition -lglew -lglfw3 -lgdi32 -lopengl32
 CXX = x86_64-w64-mingw32-g++
 
 all: freeflow.exe
-freeflow.exe: freeflow.cc
+freeflow.exe: freeflow.cc SignedDistanceFieldRenderer.hpp GridRenderer.hpp VectorFieldRenderer.hpp Grid.hpp shader.hpp
 	$(CXX) $(CXXFLAGS) freeflow.cc $(LDFLAGS) -o freeflow.exe
