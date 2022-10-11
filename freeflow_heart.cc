@@ -18,7 +18,7 @@
 constexpr float kappa = 1e-6f;  // diffusion rate
 constexpr float nu = 1e-6f; // kinematic viscosity
 constexpr int N = 128-2;
-constexpr float dt = 0.001f;
+constexpr float dt = 0.01f;
 constexpr float h = 1.0f/N;
 int width, height;
 glm::ivec2 lastCursorPos;
@@ -105,7 +105,7 @@ auto diffuse(Grid<T>& grid, Grid<float>& sdf, float dt, float kappa) {
 template <typename T>
 auto advect(Grid<T>& grid, Grid<glm::vec2>& vel, float dt) {
     Grid<T> res(N,N);
-    for (int k = 0; k < 100; k++)
+    #pragma omp for collapse (2)
     for (int y = 1; y <= N; y++)
     for (int x = 1; x <= N; x++) {
         auto p = glm::vec2(x,y) - dt*N*vel(x,y);
@@ -127,7 +127,8 @@ auto advect(Grid<T>& grid, Grid<glm::vec2>& vel, Grid<float>& sdf, float dt) {
         auto p = glm::vec2(x,y) - dt*N*vel(x,y);
         p.x = std::max(0.5f, std::min(N+0.5f, p.x));
         p.y = std::max(0.5f, std::min(N+0.5f, p.y));
-        res(x,y) = grid(p);
+        if (sdf(p) <= 0)
+            res(x,y) = grid(p);
     }
     bounds(res);
     return res;
@@ -146,7 +147,7 @@ auto project(Grid<glm::vec2>& grid, Grid<float>& sdf, float h) {
         div(x,y) = -0.5f*h*(res(x+1,y).x-res(x-1,y).x
                            +res(x,y+1).y-res(x,y-1).y);
     bounds(div);
-    for (int k = 0; k < 100; k++) {
+    for (int k = 0; k < 40; k++) {
         #pragma omp for collapse (2)
         for (int y = 1; y <= N; y++)
         for (int x = 1; x <= N; x++) {
@@ -180,7 +181,7 @@ auto extrapolate(Grid<T>& grid, Grid<float>& sdf) {
     for (int x = 0; x <= N+1; x++)
         valid0(x,y) = sdf(x,y) < 0;
 
-    for (int k = 0; k < 10; k++) {
+    for (int k = 0; k < 100; k++) {
         #pragma omp for collapse (2)
         for (int y = 1; y <= N; y++)
         for (int x = 1; x <= N; x++) {
@@ -205,7 +206,7 @@ auto extrapolate(Grid<T>& grid, Grid<float>& sdf) {
 }
 
 auto adjustsdf(Grid<float>& sdf) {
-    constexpr float T = 0.25*h;
+    constexpr float T = 0.1*h;
     Grid<float> res = sdf;
     Grid<float> temp(sdf.width(), sdf.height());
 
@@ -237,25 +238,22 @@ auto adjustsdf(Grid<float>& sdf) {
     return res;
 }
 
-void add_forces(Grid<glm::vec2>& velocity) {
-    // Add gravity
-    #pragma omp for collapse (2)
-    for (int y = 1; y <= N; y++)
-    for (int x = 1; x <= N; x++)
-        if (sdf(x,y) <= 0)
-            velocity(x,y).y -= 0.1;
-    bounds(velocity);
-}
-
 void simulate(Grid<glm::vec2>& velocity, Grid<float>& density, Grid<float>& sdf, float dt, float h) {
     
     // du/dt     = -(u.∇)u    + nu(∇^2u)  + g
     // variation = convection + diffusion + sources
     
-    add_forces(velocity);
+    // Add gravity
+    #pragma omp for collapse (2)
+    for (int y = 1; y <= N; y++)
+    for (int x = 1; x <= N; x++)
+        if (sdf(x,y) <= 0)
+        velocity(x,y).y -= 9.81*dt;
+    bounds(velocity);
     
-    velocity = diffuse(velocity, sdf, dt, kappa);
-    velocity = project(velocity, sdf, h);
+    //velocity = diffuse(velocity, sdf, dt, nu);
+    //velocity = project(velocity, sdf, h);
+    
     velocity = extrapolate(velocity, sdf);
     velocity = project(velocity, sdf, h);
     velocity = advect(velocity, velocity, sdf, dt);
@@ -267,22 +265,19 @@ void simulate(Grid<glm::vec2>& velocity, Grid<float>& density, Grid<float>& sdf,
 
 void fill_circle() {
     // Setup the SDF.
-    {
-        constexpr float r = h*(N/3);
-        for (int x = 0; x <= N+1; x++)
-        for (int y = 0; y <= N+1; y++) {
-            float dispx = h*(x - N/2);
-            float dispy = h*(y - N/2);
-            float len = hypot(dispx, dispy);
-            if (len == 0.0f) {
-                sdf(x,y) = 0.0f;
-                continue;
-            }
-            float dx = r*dispx/len+h*(N/2) - h*x;
-            float dy = r*dispy/len+h*(N/2) - h*y;
-            float s = (len < r ? -1.0f:1.0f);
-            sdf(x,y) = std::min(sdf(x,y),s*sqrt(dx*dx + dy*dy));
-        }
+    auto dot2 = [](glm::vec2 a) { return dot(a,a); };
+    auto sdHeart = [&](glm::vec2 p) {
+        p.x = fabs(p.x);
+        if( p.y+p.x>1.0f )
+            return sqrtf(dot2(p-glm::vec2(0.25f,0.75f))) - sqrtf(2.0f)/4.0f;
+        return sqrtf(fmin(dot2(p-glm::vec2(0.00f,1.00f)),
+                          dot2(p-0.5f*fmax(p.x+p.y,0.0f)))) * copysign(1.0f,p.x-p.y);
+    };
+    
+    constexpr float r = h*(N/4);
+    for (int x = 0; x <= N+1; x++)
+    for (int y = 0; y <= N+1; y++) {
+        sdf(x,y) = fmin(sdf(x,y),sdHeart(2.0f*glm::vec2(x,y)/float(N)-glm::vec2(1.0f,0.5f)));
     }
 }
 
@@ -331,7 +326,7 @@ int main(int argc, char **argv)
 	glfwSwapInterval(1);
     int counter = 0;
 	while (!glfwWindowShouldClose(window)) {
-        if (++counter == 500) {
+        if (++counter % 100 == 0) {
             fill_circle();
         }
         lastCursorPos = cursorPos;
