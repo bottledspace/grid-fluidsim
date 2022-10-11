@@ -190,10 +190,10 @@ auto extrapolate(Grid<T>& grid, Grid<float>& sdf) {
             }
             T sum = T(0.0);
             float count = 0;
-            if (x+1 <= N && valid0(x+1,y)) { sum += res(x+1,y); ++count; }
-            if (x-1 >= 0 && valid0(x-1,y)) { sum += res(x-1,y); ++count; }
-            if (y+1 <= N && valid0(x,y+1)) { sum += res(x,y+1); ++count; }
-            if (y-1 >= 0 && valid0(x,y-1)) { sum += res(x,y-1); ++count; }
+            if (valid0(x+1,y)) sum += res(x+1,y), ++count;
+            if (valid0(x-1,y)) sum += res(x-1,y), ++count;
+            if (valid0(x,y+1)) sum += res(x,y+1), ++count;
+            if (valid0(x,y-1)) sum += res(x,y-1), ++count;
             if (count != 0) {
                 res(x,y) = sum/count;
                 valid1(x,y) = 1;
@@ -205,7 +205,7 @@ auto extrapolate(Grid<T>& grid, Grid<float>& sdf) {
 }
 
 auto adjustsdf(Grid<float>& sdf) {
-    constexpr float T = 0.25*h;
+    constexpr float T = 0.01*h;
     Grid<float> res = sdf;
     Grid<float> temp(sdf.width(), sdf.height());
 
@@ -319,7 +319,7 @@ int main(int argc, char **argv)
     if (argc == 2) {
         std::string command =
             "ffmpeg -y -f rawvideo -vcodec rawvideo -framerate 30"
-            " -pix_fmt rgb24 -s 1024x1024 -i - -vf vflip -c:v libx264"
+            " -pix_fmt rgb24 -s 512x512 -i - -vf vflip -c:v libx264"
             " -crf 30 -b:v 0 -r 30 ";
         command += argv[1];  // Unsafe, should be escaped first...
         pipeout = popen(command.c_str(), "w");
