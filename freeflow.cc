@@ -105,7 +105,7 @@ auto diffuse(Grid<T>& grid, Grid<float>& sdf, float dt, float kappa) {
 template <typename T>
 auto advect(Grid<T>& grid, Grid<glm::vec2>& vel, float dt) {
     Grid<T> res(N,N);
-    for (int k = 0; k < 100; k++)
+    #pragma omp for collapse (2)
     for (int y = 1; y <= N; y++)
     for (int x = 1; x <= N; x++) {
         auto p = glm::vec2(x,y) - dt*N*vel(x,y);
@@ -146,7 +146,7 @@ auto project(Grid<glm::vec2>& grid, Grid<float>& sdf, float h) {
         div(x,y) = -0.5f*h*(res(x+1,y).x-res(x-1,y).x
                            +res(x,y+1).y-res(x,y-1).y);
     bounds(div);
-    for (int k = 0; k < 100; k++) {
+    for (int k = 0; k < 50; k++) {
         #pragma omp for collapse (2)
         for (int y = 1; y <= N; y++)
         for (int x = 1; x <= N; x++) {
@@ -212,7 +212,7 @@ auto adjustsdf(Grid<float>& sdf) {
     auto sq = [](float x) { return x*x; };
     
     // Integrate phi+sign(phi)(|grad(phi)|-1)=0
-    for (int k = 0; k < 30; k++) {
+    for (int k = 0; k < 50; k++) {
         #pragma omp for collapse (2)
         for (int y = 1; y <= N; y++)
         for (int x = 1; x <= N; x++) {
@@ -243,7 +243,7 @@ void add_forces(Grid<glm::vec2>& velocity) {
     for (int y = 1; y <= N; y++)
     for (int x = 1; x <= N; x++)
         if (sdf(x,y) <= 0)
-            velocity(x,y).y -= 0.1;
+            velocity(x,y).y -= 0.3;
     bounds(velocity);
 }
 
@@ -251,18 +251,12 @@ void simulate(Grid<glm::vec2>& velocity, Grid<float>& density, Grid<float>& sdf,
     
     // du/dt     = -(u.∇)u    + nu(∇^2u)  + g
     // variation = convection + diffusion + sources
-    
-    add_forces(velocity);
-    
-    velocity = diffuse(velocity, sdf, dt, kappa);
-    velocity = project(velocity, sdf, h);
     velocity = extrapolate(velocity, sdf);
-    velocity = project(velocity, sdf, h);
-    velocity = advect(velocity, velocity, sdf, dt);
-    velocity = project(velocity, sdf, h);
-    
     sdf = advect(sdf, velocity, dt);
     sdf = adjustsdf(sdf);
+    velocity = advect(velocity, velocity, sdf, dt);
+    add_forces(velocity);
+    velocity = project(velocity, sdf, h);
 }
 
 void fill_circle() {
@@ -350,7 +344,7 @@ int main(int argc, char **argv)
 		glClear(GL_COLOR_BUFFER_BIT);
         //densityRenderer.render(density);
         sdfRenderer.render(sdf);
-        velocityRenderer.render(velocity);
+        //velocityRenderer.render(velocity);
 		glfwSwapBuffers(window);
         if (pipeout) {
             glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
