@@ -56,3 +56,40 @@ private:
     int m_width, m_height;
     std::vector<T> m_grid;
 };
+
+
+void bounds(Grid<glm::vec2>& out)
+{
+    const int w = out.width();
+    const int h = out.height();
+    for (int y = 1; y <= h; y++) {
+        out(  0,y) = glm::vec2(-1,1)*out(1,y);
+        out(w+1,y) = glm::vec2(-1,1)*out(w,y);
+    }
+    for (int x = 1; x <= w; x++) {
+        out(x,  0) = glm::vec2(1,-1)*out(x,1);
+        out(x,h+1) = glm::vec2(1,-1)*out(x,h);
+    }
+    out(0,0)     = 0.5f*(out(1,0)+out(0,1));
+    out(w+1,0)   = 0.5f*(out(w,0)+out(w+1,1));
+    out(w+1,h+1) = 0.5f*(out(w,h+1)+out(w+1,h));
+    out(0,h+1)   = 0.5f*(out(1,h+1)+out(0,h));
+}
+
+void bounds(Grid<float>& out)
+{
+    const int w = out.width();
+    const int h = out.height();
+    for (int y = 1; y <= h; y++) {
+        out(  0,y) = out(1,y);
+        out(w+1,y) = out(w,y);
+    }
+    for (int x = 1; x <= w; x++) {
+        out(x,  0) = out(x,1);
+        out(x,h+1) = out(x,h);
+    }
+    out(0,0)     = 0.5f*(out(1,0)+out(0,1));
+    out(w+1,0)   = 0.5f*(out(w,0)+out(w+1,1));
+    out(w+1,h+1) = 0.5f*(out(w,h+1)+out(w+1,h));
+    out(0,h+1)   = 0.5f*(out(1,h+1)+out(0,h));
+}

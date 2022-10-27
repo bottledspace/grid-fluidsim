@@ -66,7 +66,7 @@ in vec2 uvFrag;
 out vec3 color;
 void main() {
 	float value = texture(field, uvFrag).r;
-    color = float(value < 0) * vec3(1.0, 0.0, 0.0);
+    color = float(value >= 0.5) * vec3(1.0, 0.0, 0.0);
 }
 )";
 const glm::vec2 SignedDistanceFieldRenderer::quadVerts[4] = {
